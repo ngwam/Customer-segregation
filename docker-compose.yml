@@ -1,0 +1,37 @@
+services:
+  mlflow:
+    build:
+      context: ./mlflow_server
+      dockerfile: Dockerfile
+    container_name: mlflow_tracking_server
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./mlflow_data:/mlflow_data
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: fastapi_backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/artifacts:/app/artifacts
+      - ./mlflow_data:/mlflow_data
+    environment:
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+    depends_on:
+      - mlflow
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: streamlit_frontend
+    ports:
+      - "8501:8501"
+    environment:
+      - FASTAPI_URL=http://backend:8000
+    depends_on:
+      - backend

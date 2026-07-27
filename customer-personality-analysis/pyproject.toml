@@ -1,0 +1,19 @@
+[project]
+name = "academic-prediction"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "category-encoders>=2.9.0",
+    "ipykernel>=7.3.0",
+    "jupyter>=1.1.1",
+    "matplotlib>=3.11.0",
+    "mlflow>=2.14.0",
+    "numpy>=2.5.0",
+    "pandas>=2.2,<3",
+    "protobuf>=7.35.1",
+    "scikit-learn>=1.9.0",
+    "seaborn>=0.13.2",
+    "xgboost>=3.3.0",
+]

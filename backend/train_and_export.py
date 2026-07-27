@@ -14,29 +14,43 @@ from sklearn.impute import SimpleImputer
 from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans
 from xgboost import XGBRegressor
+from sklearn.linear_model import Ridge, Lasso
+from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error, r2_score, root_mean_squared_error
 
 # 1. Setup MLflow & Directories
 os.makedirs("artifacts", exist_ok=True)
-mlflow.set_tracking_uri("sqlite:///mlflow.db")
+mlflow.set_tracking_uri("http://localhost:5000/")
 mlflow.set_experiment("Customer_Analytics_Deployment")
 
 # 2. Load & Preprocess Data
 df = pd.read_csv('marketing_campaign.csv', sep='\t')
 
 # Feature Engineering
-df['Age'] = 2026 - df['Year_Birth']
+df["Income"] = np.log1p(df["Income"])
+
+df['Age'] = 2020 - df['Year_Birth']
 spend_cols = ['MntWines', 'MntFruits', 'MntMeatProducts', 'MntFishProducts', 'MntSweetProducts', 'MntGoldProds']
 df['Expense_amount'] = df[spend_cols].sum(axis=1)
 
 campaign_cols = ['AcceptedCmp1', 'AcceptedCmp2', 'AcceptedCmp3', 'AcceptedCmp4', 'AcceptedCmp5', 'Response']
+df["Campaigns"] = df["AcceptedCmp1"]+df["AcceptedCmp2"]+df["AcceptedCmp3"]+df["AcceptedCmp4"]+df["AcceptedCmp5"]+df["Response"]
+
+
+edu_order = {"Basic":0, "Graduation": 1, "2n Cycle": 2, "Master": 2, "PhD": 3}
+df["Education"] = df["Education"].map(edu_order)
+
+marital_order = {"Absurd":0, "YOLO": 0, "Alone": 1, "Single": 1, "Divorced": 2, "Widow": 2, "Together": 3, "Married": 4}
+df["Marital_Status"] = df["Marital_Status"].map(marital_order)
+
+df['HalveIncomeIfComplain'] = df['Income']/(df['Complain']+1)
 
 # --- A. TRAIN REGRESSION MODEL ---
-num_features = ['Income', 'Recency', 'Kidhome', 'Teenhome', 'NumDealsPurchases', 
+num_features = ['Income', 'Recency', 'Kidhome', 'Teenhome', 'NumDealsPurchases',
                 'NumWebPurchases', 'NumCatalogPurchases', 'NumStorePurchases', 
-                'NumWebVisitsMonth', 'Age']
-cat_features = ['Education', 'Marital_Status']
+                'NumWebVisitsMonth', 'Age', 'Education', 'Marital_Status',
+                'Complain', 'HalveIncomeIfComplain']
 
-X = df[num_features + cat_features]
+X = df[num_features]
 y = df['Expense_amount']
 
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
@@ -45,8 +59,7 @@ preprocessor = ColumnTransformer(transformers=[
     ('num', Pipeline([
         ('imputer', SimpleImputer(strategy='median')),
         ('scaler', StandardScaler())
-    ]), num_features),
-    ('cat', OneHotEncoder(handle_unknown='ignore', sparse_output=False), cat_features)
+    ]), num_features)
 ])
 
 reg_pipeline = Pipeline([
@@ -54,18 +67,89 @@ reg_pipeline = Pipeline([
     ('regressor', XGBRegressor(n_estimators=100, learning_rate=0.05, max_depth=4, random_state=42))
 ])
 
-with mlflow.start_run(run_name="XGBoost_Regression"):
-    reg_pipeline.fit(X_train, y_train)
-    mlflow.sklearn.log_model(
-        sk_model=reg_pipeline,
-        artifact_path="regression_model",
-        skops_trusted_types=[
-            "numpy.dtype",
-            "xgboost.core.Booster",
-            "xgboost.sklearn.XGBRegressor"
-        ]
-    )
-    joblib.dump(reg_pipeline, 'artifacts/best_xgb_model.pkl')
+preprocessor.fit(X_train)
+
+X_train_processed = preprocessor.transform(X_train)
+X_test_processed = preprocessor.transform(X_test)
+
+models = {'Ridge Regressor': (Ridge, {'alpha':1.0}),
+          'Lasso Regressor': (Lasso, {'alpha':1.0, 'random_state':42}),
+          'XGBoost Regressor': (XGBRegressor, {'n_estimators':100, 'learning_rate':0.05, 'max_depth':4, 'random_state':42})}
+list(models.keys())
+
+run_ids = {}
+
+for name, (ModelClass, params) in models.items():
+    with mlflow.start_run(run_name=name) as run:
+        mlflow.set_tag("algorithm", name)
+        mlflow.log_params(params)
+
+        model = ModelClass(**params)
+        model.fit(X_train_processed, y_train)
+
+        y_pred = model.predict(X_test_processed)
+        proba = model.predict_proba(X_test_processed)[:, 1] if hasattr(model, "predict_proba") else None
+        
+        metrics = {
+            'MAE': mean_absolute_error(y_test, y_pred),
+            'RMSE': root_mean_squared_error(y_test, y_pred),
+            'R2 Score': r2_score(y_test, y_pred),
+            'MAPE': mean_absolute_percentage_error(y_test, y_pred)
+            }
+        
+        mlflow.log_metrics(metrics)
+        trusted_types = ["xgboost.core.Booster", "xgboost.sklearn.XGBRegressor"]
+        
+        mlflow.sklearn.log_model(
+            sk_model=model, 
+            artifact_path="model", 
+            input_example=X_train_processed[:2],
+            skops_trusted_types=trusted_types
+        )
+        run_ids[name] = run.info.run_id
+
+        if name == "XGBoost Regressor":
+            reg_pipeline.fit(X_train, y_train)
+            joblib.dump(reg_pipeline, 'artifacts/best_xgb_model.pkl')
+
+
+
+
+# experiment = mlflow.get_experiment_by_name("Customer_Analytics_Deployment")
+# runs_df = mlflow.search_runs(experiment_ids=[experiment.experiment_id])
+
+# metric_cols = [c for c in runs_df.columns if c.startswith("metrics.")]
+# comparison = runs_df[["run_id", "tags.algorithm"] + metric_cols].sort_values(
+#     "metrics.MAE", ascending=True
+# ).reset_index(drop=True)
+# comparison.columns = [c.replace("metrics.", "") for c in comparison.columns]
+
+# best_row = comparison.iloc[0]
+# best_run_id = best_row["run_id"]
+# best_algorithm = best_row["tags.algorithm"]
+
+# print(f"Best model: {best_algorithm}  (run_id={best_run_id},R2={best_row['R2 Score']:.3f})")
+
+# model_uri = f"runs:/{best_run_id}/model"
+# loaded_model = mlflow.sklearn.load_model(model_uri)
+
+# loaded_preds = loaded_model.predict(X_test_processed)
+# print("\nReloaded model matches its original test R2 Score:",
+#       np.isclose(r2_score(y_test, loaded_preds), best_row["R2 Score"]))
+
+# #Model registration
+# registered = mlflow.register_model(model_uri=model_uri, name="best_regression_model")
+# print(f"Registered '{registered.name}' as version {registered.version}")
+
+# # load it back by registry name + version, instead of by run id
+# registry_model = mlflow.sklearn.load_model(f"models:/{registered.name}/{registered.version}")
+# print("Loaded from registry OK:", r2_score(y_test, registry_model.predict(X_test_processed)))
+
+
+
+
+
+
 
 # --- B. TRAIN PCA + K-MEANS CLUSTERING ---
 cluster_cols = spend_cols + campaign_cols + ['Recency', 'Income']

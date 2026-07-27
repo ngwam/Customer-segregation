@@ -42,6 +42,7 @@ class PredictInput(BaseModel):
     Age: int = Field(..., example=45)
     Education: str = Field(..., example="Graduation")
     Marital_Status: str = Field(..., example="Single")
+    Complain: int = Field(0, example=0)
 
 class SegmentInput(BaseModel):
     Income: float = Field(..., example=58138.0)
@@ -67,7 +68,33 @@ def home():
 def predict_spend(profile: PredictInput):
     try:
         input_df = pd.DataFrame([profile.dict()])
-        predicted_spend = float(reg_pipeline.predict(input_df)[0])
+
+        education_map = {
+            "Basic":0,
+            "Graduation":1,
+            "2n Cycle":2,
+            "Master":2,
+            "PhD":3
+        }
+
+        marital_map = {
+            "Absurd":0,
+            "YOLO":0,
+            "Alone":1,
+            "Single":1,
+            "Divorced":2,
+            "Widow":2,
+            "Together":3,
+            "Married":4
+        }
+
+        input_df["Education"] = input_df["Education"].map(education_map)
+        input_df["Marital_Status"] = input_df["Marital_Status"].map(marital_map)
+        input_df["Income"] = np.log1p(input_df["Income"])
+        input_df["HalveIncomeIfComplain"] = (
+            input_df["Income"] / (input_df["Complain"] + 1)
+        )
+        predicted_spend = max(float(reg_pipeline.predict(input_df)[0]),0)
         return {
             "predicted_spend_usd": round(predicted_spend, 2),
             "status": "success"
@@ -84,7 +111,8 @@ def get_segment(data: SegmentInput):
             'MntSweetProducts', 'MntGoldProds', 'AcceptedCmp1', 'AcceptedCmp2', 
             'AcceptedCmp3', 'AcceptedCmp4', 'AcceptedCmp5', 'Response', 'Recency', 'Income'
         ]
-        
+
+        input_dict["Income"] = np.log1p(input_dict["Income"])
         vector = np.array([[input_dict[f] for f in features_order]])
         
         vector_imp = cluster_imputer.transform(vector)

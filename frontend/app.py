@@ -15,6 +15,7 @@ age = st.sidebar.slider("Age", 18, 90, 42)
 recency = st.sidebar.slider("Days Since Last Purchase (Recency)", 0, 100, 30)
 education = st.sidebar.selectbox("Education Level", ["Graduation", "PhD", "Master", "Basic", "2n Cycle"])
 marital_status = st.sidebar.selectbox("Marital Status", ["Single", "Together", "Married", "Divorced", "Widow"])
+complain = st.sidebar.checkbox("Have they made a complaint?")
 
 col1, col2 = st.sidebar.columns(2)
 kidhome = col1.number_input("Kids at Home", 0, 5, 0)
@@ -53,7 +54,8 @@ if st.button("🚀 Analyze Profile & Predict", use_container_width=True):
         "NumWebVisitsMonth": web_visits,
         "Age": age,
         "Education": education,
-        "Marital_Status": marital_status
+        "Marital_Status": marital_status,
+        "Complain": int(complain)
     }
     
     segment_payload = {
@@ -82,7 +84,7 @@ if st.button("🚀 Analyze Profile & Predict", use_container_width=True):
         
         c1, c2 = st.columns(2)
         with c1:
-            st.metric("Predicted Total Spend", f"${pred_data.get('predicted_spend_usd', 0.0):,.2f}")
+            st.metric("Predicted Total Spend", f"${pred_data.get('predicted_spend_usd', 468.29):,.2f}")
         with c2:
             st.metric("Assigned Persona", seg_data.get('persona', 'N/A'))
             

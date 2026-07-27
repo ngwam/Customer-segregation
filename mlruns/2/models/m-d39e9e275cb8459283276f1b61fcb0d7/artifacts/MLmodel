@@ -1,0 +1,23 @@
+artifact_path: file:c:/Users/ngwam/Desktop/Customer_segmentation/mlruns/2/models/m-d39e9e275cb8459283276f1b61fcb0d7/artifacts
+flavors:
+  python_function:
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.sklearn
+    model_path: model.pkl
+    predict_fn: predict
+    python_version: 3.12.13
+  sklearn:
+    code: null
+    pickled_model: model.pkl
+    serialization_format: cloudpickle
+    sklearn_version: 1.9.0
+    skops_trusted_types: null
+mlflow_version: 3.14.0
+model_id: m-d39e9e275cb8459283276f1b61fcb0d7
+model_size_bytes: 3985
+model_uuid: m-d39e9e275cb8459283276f1b61fcb0d7
+prompts: null
+run_id: 3ab8610cd0c64a04a7777fda72173c44
+utc_time_created: '2026-07-27 06:58:16.439793'

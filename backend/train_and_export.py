@@ -6,7 +6,7 @@ import mlflow
 import mlflow.sklearn
 import mlflow.xgboost
 
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
@@ -16,6 +16,7 @@ from sklearn.cluster import KMeans
 from xgboost import XGBRegressor
 from sklearn.linear_model import Ridge, Lasso
 from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error, r2_score, root_mean_squared_error
+from sklearn.ensemble import RandomForestRegressor
 
 # 1. Setup MLflow & Directories
 os.makedirs("artifacts", exist_ok=True)
@@ -72,78 +73,129 @@ preprocessor.fit(X_train)
 X_train_processed = preprocessor.transform(X_train)
 X_test_processed = preprocessor.transform(X_test)
 
-models = {'Ridge Regressor': (Ridge, {'alpha':1.0}),
-          'Lasso Regressor': (Lasso, {'alpha':1.0, 'random_state':42}),
-          'XGBoost Regressor': (XGBRegressor, {'n_estimators':100, 'learning_rate':0.05, 'max_depth':4, 'random_state':42})}
+param_grid_ridge = {
+    "alpha": [0.1,1,10]
+}
+
+param_grid_lasso = {
+    "alpha": [0.1,1,10]
+}
+
+param_grid_rf = {
+    "n_estimators": [100, 200, 300],
+    "max_depth": [5, 8, None],
+    "min_samples_split": [2, 5],
+}
+
+param_grid_xg = {
+    "n_estimators": [100, 200, 300],
+    "max_depth": [4, 6, 8, None],
+    "learning_rate": [0.02, 0.05, 0.1],
+}
+
+models = {
+    "Ridge": {
+        "model": Ridge(),
+        "params": param_grid_ridge,
+    },
+    "Lasso": {
+        "model": Lasso(),
+        "params": param_grid_lasso,
+    },
+    "Random Forest": {
+        "model": RandomForestRegressor(n_jobs=-1),
+        "params": param_grid_rf,
+    },
+    "XGBoost": {
+        "model": XGBRegressor(n_jobs=-1),
+        "params": param_grid_xg,
+    },
+}
+
 list(models.keys())
 
 run_ids = {}
 
-for name, (ModelClass, params) in models.items():
+for name, config in models.items():
+    model = config["model"]
+    param_grid = config["params"]
+
+    grid = GridSearchCV(
+        estimator=model,
+        param_grid=param_grid,
+        cv=5,
+        scoring="neg_root_mean_squared_error",
+        n_jobs=-1,
+    )
+
     with mlflow.start_run(run_name=name) as run:
         mlflow.set_tag("algorithm", name)
-        mlflow.log_params(params)
 
-        model = ModelClass(**params)
-        model.fit(X_train_processed, y_train)
+        grid.fit(X_train_processed, y_train)
 
-        y_pred = model.predict(X_test_processed)
-        proba = model.predict_proba(X_test_processed)[:, 1] if hasattr(model, "predict_proba") else None
-        
+        best_model = grid.best_estimator_
+
+        mlflow.log_params(grid.best_params_)
+
+        y_pred = best_model.predict(X_test_processed)
+
         metrics = {
-            'MAE': mean_absolute_error(y_test, y_pred),
-            'RMSE': root_mean_squared_error(y_test, y_pred),
-            'R2 Score': r2_score(y_test, y_pred),
-            'MAPE': mean_absolute_percentage_error(y_test, y_pred)
-            }
-        
+            "MAE": mean_absolute_error(y_test, y_pred),
+            "RMSE": root_mean_squared_error(y_test, y_pred),
+            "R2 Score": r2_score(y_test, y_pred),
+            "MAPE": mean_absolute_percentage_error(y_test, y_pred),
+        }
+
         mlflow.log_metrics(metrics)
-        trusted_types = ["xgboost.core.Booster", "xgboost.sklearn.XGBRegressor"]
-        
-        mlflow.sklearn.log_model(
-            sk_model=model, 
-            artifact_path="model", 
-            input_example=X_train_processed[:2],
-            skops_trusted_types=trusted_types
-        )
+
+        if name == "XGBoost":
+            mlflow.xgboost.log_model(
+                xgb_model=best_model,
+                artifact_path="model",
+                input_example=X_train_processed[:2],
+            )
+        else:
+            mlflow.sklearn.log_model(
+                sk_model=best_model,
+                artifact_path="model",
+                input_example=X_train_processed[:2],
+            )
+
         run_ids[name] = run.info.run_id
 
-        if name == "XGBoost Regressor":
-            reg_pipeline.fit(X_train, y_train)
-            joblib.dump(reg_pipeline, 'artifacts/best_xgb_model.pkl')
+        if name == "XGBoost":
+            joblib.dump(best_model, "artifacts/best_xgb_model.pkl")
 
 
+experiment = mlflow.get_experiment_by_name("Customer_Analytics_Deployment")
+runs_df = mlflow.search_runs(experiment_ids=[experiment.experiment_id])
 
+metric_cols = [c for c in runs_df.columns if c.startswith("metrics.")]
+comparison = runs_df[["run_id", "tags.algorithm"] + metric_cols].sort_values(
+    "metrics.MAE", ascending=True
+).reset_index(drop=True)
+comparison.columns = [c.replace("metrics.", "") for c in comparison.columns]
 
-# experiment = mlflow.get_experiment_by_name("Customer_Analytics_Deployment")
-# runs_df = mlflow.search_runs(experiment_ids=[experiment.experiment_id])
+best_row = comparison.iloc[0]
+best_run_id = best_row["run_id"]
+best_algorithm = best_row["tags.algorithm"]
 
-# metric_cols = [c for c in runs_df.columns if c.startswith("metrics.")]
-# comparison = runs_df[["run_id", "tags.algorithm"] + metric_cols].sort_values(
-#     "metrics.MAE", ascending=True
-# ).reset_index(drop=True)
-# comparison.columns = [c.replace("metrics.", "") for c in comparison.columns]
+print(f"Best model: {best_algorithm}  (run_id={best_run_id},R2={best_row['R2 Score']:.3f})")
 
-# best_row = comparison.iloc[0]
-# best_run_id = best_row["run_id"]
-# best_algorithm = best_row["tags.algorithm"]
+model_uri = f"runs:/{best_run_id}/model"
+loaded_model = mlflow.sklearn.load_model(model_uri)
 
-# print(f"Best model: {best_algorithm}  (run_id={best_run_id},R2={best_row['R2 Score']:.3f})")
+loaded_preds = loaded_model.predict(X_test_processed)
+print("\nReloaded model matches its original test R2 Score:",
+      np.isclose(r2_score(y_test, loaded_preds), best_row["R2 Score"]))
 
-# model_uri = f"runs:/{best_run_id}/model"
-# loaded_model = mlflow.sklearn.load_model(model_uri)
+#Model registration
+registered = mlflow.register_model(model_uri=model_uri, name="best_regression_model")
+print(f"Registered '{registered.name}' as version {registered.version}")
 
-# loaded_preds = loaded_model.predict(X_test_processed)
-# print("\nReloaded model matches its original test R2 Score:",
-#       np.isclose(r2_score(y_test, loaded_preds), best_row["R2 Score"]))
-
-# #Model registration
-# registered = mlflow.register_model(model_uri=model_uri, name="best_regression_model")
-# print(f"Registered '{registered.name}' as version {registered.version}")
-
-# # load it back by registry name + version, instead of by run id
-# registry_model = mlflow.sklearn.load_model(f"models:/{registered.name}/{registered.version}")
-# print("Loaded from registry OK:", r2_score(y_test, registry_model.predict(X_test_processed)))
+# load it back by registry name + version, instead of by run id
+registry_model = mlflow.sklearn.load_model(f"models:/{registered.name}/{registered.version}")
+print("Loaded from registry OK:", r2_score(y_test, registry_model.predict(X_test_processed)))
 
 
 

@@ -15,7 +15,7 @@ from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans
 from xgboost import XGBRegressor
 from sklearn.linear_model import Ridge, Lasso
-from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error, r2_score, root_mean_squared_error
+from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error, r2_score, root_mean_squared_error,  silhouette_score
 from sklearn.ensemble import RandomForestRegressor
 
 # 1. Setup MLflow & Directories
@@ -225,11 +225,35 @@ persona_map = {
 }
 
 with mlflow.start_run(run_name="PCA_KMeans_Clustering"):
+
+    mlflow.log_param("pca_components", cluster_pca.n_components)
+    mlflow.log_param("kmeans_init", kmeans.n_init)
+
+    mlflow.log_metric("inertia", kmeans.inertia_)
+    mlflow.log_metric(
+        "silhouette_score",
+        silhouette_score(X_cl_pca, kmeans.labels_)
+    )
+    mlflow.log_metric(
+        "explained_variance_pc1",
+        cluster_pca.explained_variance_ratio_[0]
+    )
+    mlflow.log_metric(
+        "explained_variance_pc2",
+        cluster_pca.explained_variance_ratio_[1]
+    )
+    mlflow.log_metric(
+        "total_explained_variance",
+        cluster_pca.explained_variance_ratio_.sum()
+    )
+
     mlflow.sklearn.log_model(kmeans, artifact_path="clustering_model")
     joblib.dump(cluster_imputer, 'artifacts/cluster_imputer.pkl')
     joblib.dump(cluster_scaler, 'artifacts/cluster_scaler.pkl')
     joblib.dump(cluster_pca, 'artifacts/cluster_pca.pkl')
     joblib.dump(kmeans, 'artifacts/cluster_model.pkl')
     joblib.dump(persona_map, 'artifacts/persona_mapping.pkl')
+
+    mlflow.log_artifacts("artifacts")
 
 print("[SUCCESS] Trained models, logged to MLflow, and exported artifacts.")

@@ -2,10 +2,13 @@
 Identifying different groups
 
 # How to run
-run uv sync in backend
-then run train and export, ensure you have pkl files in artifacts
-cd to frontend and run uv sync in frontend
-then go to home directory and run `docker compose up --build`
+run ‘uv sync —link_mode =copy’ in /backend and the same in /frontend. then go back to the base directory (Customer-segregation) and run `docker compose up --build`.
+check the docker images to make sure they are created and make sure the docker container is running - it will take a couple of minutes for that all to launch.
+
+locally delete the artifacts , mlruns, ml db directories.
+
+split the terminal and in the other terminal window go to /backend directory and run ‘uv run train_and_export.py’
+
 
 # How to see results
 Streamlit Frontend: http://localhost:8501

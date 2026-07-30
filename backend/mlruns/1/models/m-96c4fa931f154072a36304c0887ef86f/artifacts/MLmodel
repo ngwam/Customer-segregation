@@ -1,0 +1,23 @@
+artifact_path: file:C:/Users/milan/OneDrive/Documents/Training/Customer-segregation/backend/mlruns/1/models/m-96c4fa931f154072a36304c0887ef86f/artifacts
+flavors:
+  python_function:
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.sklearn
+    model_path: model.skops
+    predict_fn: predict
+    python_version: 3.14.6
+  sklearn:
+    code: null
+    pickled_model: model.skops
+    serialization_format: skops
+    sklearn_version: 1.9.0
+    skops_trusted_types: null
+mlflow_version: 3.14.0
+model_id: m-96c4fa931f154072a36304c0887ef86f
+model_size_bytes: 17827
+model_uuid: m-96c4fa931f154072a36304c0887ef86f
+prompts: null
+run_id: e636b18129374c77aa4f2dee8f13912a
+utc_time_created: '2026-07-27 15:36:12.884516'
